@@ -1,3 +1,6 @@
+using Domain.Persistence;
+using Microsoft.EntityFrameworkCore;
+
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddEndpointsApiExplorer();
@@ -7,7 +10,7 @@ builder.Services.AddCors(builder => builder.AddPolicy("AllowMe",
                     .AllowAnyHeader()
                     .AllowAnyMethod()
     ));
-
+builder.Services.AddDbContext<AppDbContext>(opt => opt.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 var app = builder.Build();
 
 if (app.Environment.IsDevelopment())
