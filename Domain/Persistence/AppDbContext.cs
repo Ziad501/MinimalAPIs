@@ -1,6 +1,9 @@
-﻿using Domain.Persistence.Config;
+﻿using Domain.Entities;
+using Domain.Persistence.Config;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Design;
+using Microsoft.Extensions.Configuration;
 
 namespace Domain.Persistence;
 
@@ -17,5 +20,18 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
         modelBuilder.ApplyConfiguration(new EnrollmentConfig());
     }
 }
-
+public class AppDbContextFactory : IDesignTimeDbContextFactory<AppDbContext>
+{
+    public AppDbContext CreateDbContext(string[] args)
+    {
+        IConfiguration config = new ConfigurationBuilder()
+            .SetBasePath(Directory.GetCurrentDirectory())
+            .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
+            .Build();
+        var optionsBuilder = new DbContextOptionsBuilder<AppDbContext>();
+        var connectionString = config.GetConnectionString("DefaultConnection");
+        optionsBuilder.UseSqlServer(connectionString);
+        return new AppDbContext(optionsBuilder.Options);
+    }
+}
 
