@@ -1,7 +1,9 @@
-﻿using Domain.Entities;
-using Domain.Persistence;
+﻿using Domain.DTOs.StudentDTOs;
+using Domain.Entities;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.OpenApi.Any;
+using MinimalAPIs.IRepository;
 namespace MinimalAPIs.EndPoints;
 
 public static class StudentEndpoints
@@ -10,67 +12,138 @@ public static class StudentEndpoints
     {
         var group = routes.MapGroup("/api/Student").WithTags(nameof(Student));
 
-        group.MapGet("/", async (AppDbContext db) =>
+        group.MapGet("/", async Task<Ok<List<StudentDto>>> (IGenericRepository<Student> _repo) =>
         {
-            return await db.Students.ToListAsync();
+            return TypedResults.Ok(
+                await _repo.Query()
+                .Select(p => new StudentDto(p.Id, p.FirstName, p.LastName, p.DateOfBirth, p.IdNumber, p.Picture))
+                .ToListAsync());
         })
         .WithName("GetAllStudents")
-        .WithOpenApi();
-
-        group.MapGet("/{id}", async Task<Results<Ok<Student>, NotFound>> (int id, AppDbContext db, CancellationToken token) =>
+        .Produces<List<StudentDto>>(StatusCodes.Status200OK)
+        .WithOpenApi(op =>
         {
-            return await db.Students.AsNoTracking()
-                .FirstOrDefaultAsync(model => model.Id == id, token)
-                is Student model
-                    ? TypedResults.Ok(model)
-                    : TypedResults.NotFound();
+            op.Summary = "List all students";
+            op.Description = "Returns students as DTOs via server-side projection. No tracking is used.";
+            return op.SetJsonExample("200", new OpenApiArray
+            {
+                new OpenApiObject
+                {
+                    ["id"] = new OpenApiInteger(501),
+                    ["firstName"] = new OpenApiString("Sara"),
+                    ["lastName"] = new OpenApiString("Ali"),
+                    ["dateOfBirth"] = new OpenApiString("2001-05-17"),
+                    ["idNumber"] = new OpenApiString("A123456789"),
+                    ["picture"] = new OpenApiString("https://example.com/sara.jpg")
+                }
+            });
+        });
+
+        group.MapGet("/{id}", async Task<Results<Ok<StudentDto>, NotFound>> (int id, IGenericRepository<Student> _repo, CancellationToken ct) =>
+        {
+            var dto = await _repo.Query()
+                .Where(p => p.Id == id)
+                .Select(p => new StudentDto(p.Id, p.FirstName, p.LastName, p.DateOfBirth, p.IdNumber, p.Picture))
+                .FirstOrDefaultAsync(ct);
+
+            return dto is null ? TypedResults.NotFound() : TypedResults.Ok(dto);
         })
         .WithName("GetStudentById")
-        .WithOpenApi();
-
-        group.MapPut("/{id}", async Task<Results<Ok, NotFound>> (int id, Student student, AppDbContext db, CancellationToken token) =>
+        .Produces<StudentDto>(StatusCodes.Status200OK)
+        .Produces(StatusCodes.Status404NotFound)
+        .WithOpenApi(op =>
         {
-            var affected = await db.Students
-                .Where(model => model.Id == id)
-                .ExecuteUpdateAsync(setters => setters
+            op.Summary = "Get a student by ID";
+            op.Description = "Fetch a single student. Returns 404 if not found.";
+            op.SetIdDescription("Student identifier (integer > 0).");
+            return op.SetJsonExample("200", new OpenApiObject
+            {
+                ["id"] = new OpenApiInteger(501),
+                ["firstName"] = new OpenApiString("Sara"),
+                ["lastName"] = new OpenApiString("Ali"),
+                ["dateOfBirth"] = new OpenApiString("2001-05-17"),
+                ["idNumber"] = new OpenApiString("A123456789"),
+                ["picture"] = new OpenApiString("https://example.com/sara.jpg")
+            });
+        });
+
+        group.MapPost("/", async (StudentCreateDto studentDto, IGenericRepository<Student> _repo, CancellationToken ct) =>
+        {
+            var student = new Student
+            {
+                FirstName = studentDto.FirstName,
+                LastName = studentDto.LastName,
+                DateOfBirth = studentDto.DateOfBirth,
+                IdNumber = studentDto.IdNumber,
+                Picture = studentDto.Picture,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow,
+                CreatedBy = "sys",
+                UpdatedBy = "sys",
+            };
+            await _repo.AddAsync(student, ct);
+            return TypedResults.Created($"/api/Student/{student.Id}", studentDto);
+        })
+        .WithName("CreateStudent")
+        .Accepts<StudentCreateDto>("application/json")
+        .Produces<StudentCreateDto>(StatusCodes.Status201Created)
+        .WithOpenApi(op =>
+        {
+            op.Summary = "Create a new student";
+            op.Description = "Creates a student and returns the submitted payload. Note this response does **not** include the generated id.";
+            op.EnsureResponseHeader("201", "Location", "URL of created student", "/api/Student/501");
+            return op.SetJsonExample("201", new OpenApiObject
+            {
+                ["firstName"] = new OpenApiString("Sara"),
+                ["lastName"] = new OpenApiString("Ali"),
+                ["dateOfBirth"] = new OpenApiString("2001-05-17"),
+                ["idNumber"] = new OpenApiString("A123456789"),
+                ["picture"] = new OpenApiNull() // or string
+            });
+        });
+
+        group.MapPut("/{id}", async Task<Results<NoContent, NotFound, BadRequest<string>>> (int id, StudentDto student, IGenericRepository<Student> _repo, CancellationToken token) =>
+        {
+            if (id != student.Id) return TypedResults.BadRequest("Route ID and course ID do not match.");
+
+            var affected = await _repo.UpdateAsync(model => model.Id == id,
+                setters => setters
                     .SetProperty(m => m.FirstName, student.FirstName)
                     .SetProperty(m => m.LastName, student.LastName)
                     .SetProperty(m => m.DateOfBirth, student.DateOfBirth)
                     .SetProperty(m => m.IdNumber, student.IdNumber)
                     .SetProperty(m => m.Picture, student.Picture)
-                    .SetProperty(m => m.Id, student.Id)
-                    .SetProperty(m => m.CreatedAt, student.CreatedAt)
-                    .SetProperty(m => m.UpdatedAt, student.UpdatedAt)
-                    .SetProperty(m => m.CreatedBy, student.CreatedBy)
-                    .SetProperty(m => m.UpdatedBy, student.UpdatedBy)
-                    , token);
-            return affected == 1 ? TypedResults.Ok() : TypedResults.NotFound();
+                    .SetProperty(m => m.UpdatedAt, DateTime.UtcNow)
+                    .SetProperty(m => m.UpdatedBy, "sys"),
+                token);
+
+            return affected == 1 ? TypedResults.NoContent() : TypedResults.NotFound();
         })
         .WithName("UpdateStudent")
-        .WithOpenApi();
-
-        group.MapPost("/", async (Student student, AppDbContext db, CancellationToken token) =>
+        .Accepts<StudentDto>("application/json")
+        .Produces(StatusCodes.Status204NoContent)
+        .Produces<string>(StatusCodes.Status400BadRequest, "text/plain")
+        .Produces(StatusCodes.Status404NotFound)
+        .WithOpenApi(op =>
         {
-            db.Students.Add(student);
-            await db.SaveChangesAsync(token);
-            return TypedResults.Created($"/api/Student/{student.Id}", student);
-        })
-        .WithName("CreateStudent")
-        .WithOpenApi();
+            op.Summary = "Update a student";
+            op.Description = "Full update by ID using set-based SQL. Returns 204 on success.";
+            return op.SetIdDescription("Student identifier (must match body.id).");
+        });
 
-        group.MapDelete("/{id}", async Task<Results<Ok, NotFound>> (int id, AppDbContext db, CancellationToken token) =>
+        group.MapDelete("/{id}", async Task<Results<NoContent, NotFound>> (int id, IGenericRepository<Student> _repo, CancellationToken ct) =>
         {
-            var affected = await db.Students
-                .Where(model => model.Id == id)
-                .ExecuteDeleteAsync(token);
-            return affected == 1 ? TypedResults.Ok() : TypedResults.NotFound();
+            var affected = await _repo.DeleteByIdAsync(id, ct);
+            return affected == 1 ? TypedResults.NoContent() : TypedResults.NotFound();
         })
         .WithName("DeleteStudent")
-        .WithOpenApi(o =>
+        .Produces(StatusCodes.Status204NoContent)
+        .Produces(StatusCodes.Status404NotFound)
+        .WithOpenApi(op =>
         {
-            o.Summary = "Deletes a specific student.";
-            o.Description = "Permanently removes a student record from the database using their unique ID.";
-            return o;
+            op.Summary = "Delete a student";
+            op.Description = "Permanently removes a student record by ID.";
+            return op.SetIdDescription("Student identifier (integer > 0).");
         });
     }
 }
