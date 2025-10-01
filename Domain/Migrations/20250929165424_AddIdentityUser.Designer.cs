@@ -4,6 +4,7 @@ using Domain.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Domain.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20250929165424_AddIdentityUser")]
+    partial class AddIdentityUser
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -53,7 +56,7 @@ namespace Domain.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("Courses", (string)null);
+                    b.ToTable("Courses");
 
                     b.HasData(
                         new
@@ -152,7 +155,7 @@ namespace Domain.Migrations
 
                     b.HasIndex("StudentId");
 
-                    b.ToTable("Enrollments", (string)null);
+                    b.ToTable("Enrollments");
 
                     b.HasData(
                         new
@@ -330,7 +333,7 @@ namespace Domain.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("Students", (string)null);
+                    b.ToTable("Students");
 
                     b.HasData(
                         new
@@ -491,10 +494,6 @@ namespace Domain.Migrations
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
-                    b.Property<string>("LastName")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
                     b.Property<bool>("LockoutEnabled")
                         .HasColumnType("bit");
 
@@ -527,6 +526,10 @@ namespace Domain.Migrations
                     b.Property<string>("UserName")
                         .HasMaxLength(256)
                         .HasColumnType("nvarchar(256)");
+
+                    b.Property<string>("lastName")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
 
                     b.HasKey("Id");
 

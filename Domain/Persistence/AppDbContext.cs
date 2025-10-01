@@ -7,7 +7,7 @@ using Microsoft.Extensions.Configuration;
 
 namespace Domain.Persistence;
 
-public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbContext(options)
+public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbContext<User>(options)
 {
     public DbSet<Student> Students { get; set; }
     public DbSet<Course> Courses { get; set; }
