@@ -1,5 +1,6 @@
 ﻿using Domain.DTOs.StudentDTOs;
 using Domain.Entities;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi.Any;
@@ -67,7 +68,7 @@ public static class StudentEndpoints
             });
         });
 
-        group.MapPost("/", async (StudentCreateDto studentDto, IGenericRepository<Student> _repo, CancellationToken ct) =>
+        group.MapPost("/", [Authorize(Roles = "Admin")] async (StudentCreateDto studentDto, IGenericRepository<Student> _repo, CancellationToken ct) =>
         {
             var student = new Student
             {
@@ -98,11 +99,11 @@ public static class StudentEndpoints
                 ["lastName"] = new OpenApiString("Ali"),
                 ["dateOfBirth"] = new OpenApiString("2001-05-17"),
                 ["idNumber"] = new OpenApiString("A123456789"),
-                ["picture"] = new OpenApiNull() // or string
+                ["picture"] = new OpenApiNull()
             });
         });
 
-        group.MapPut("/{id}", async Task<Results<NoContent, NotFound, BadRequest<string>>> (int id, StudentDto student, IGenericRepository<Student> _repo, CancellationToken token) =>
+        group.MapPut("/{id}", [Authorize(Roles = "Admin")] async Task<Results<NoContent, NotFound, BadRequest<string>>> (int id, StudentDto student, IGenericRepository<Student> _repo, CancellationToken token) =>
         {
             if (id != student.Id) return TypedResults.BadRequest("Route ID and course ID do not match.");
 
@@ -131,7 +132,7 @@ public static class StudentEndpoints
             return op.SetIdDescription("Student identifier (must match body.id).");
         });
 
-        group.MapDelete("/{id}", async Task<Results<NoContent, NotFound>> (int id, IGenericRepository<Student> _repo, CancellationToken ct) =>
+        group.MapDelete("/{id}", [Authorize(Roles = "Admin")] async Task<Results<NoContent, NotFound>> (int id, IGenericRepository<Student> _repo, CancellationToken ct) =>
         {
             var affected = await _repo.DeleteByIdAsync(id, ct);
             return affected == 1 ? TypedResults.NoContent() : TypedResults.NotFound();

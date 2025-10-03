@@ -1,5 +1,6 @@
 ﻿using Domain.DTOs.CourseDTOs;
 using Domain.Entities;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi.Any;
@@ -60,7 +61,7 @@ public static class CourseEndpoints
             });
         });
 
-        group.MapPost("/", async Task<Results<Created<CourseDto>, BadRequest>> (IGenericRepository<Course> _repo, CourseCreateDto dto, CancellationToken ct) =>
+        group.MapPost("/", [Authorize(Roles = "Admin")] async Task<Results<Created<CourseDto>, BadRequest>> (IGenericRepository<Course> _repo, CourseCreateDto dto, CancellationToken ct) =>
         {
             var course = new Course
             {
@@ -92,7 +93,7 @@ public static class CourseEndpoints
             });
         });
 
-        group.MapPut("/{id}", async Task<Results<NoContent, NotFound<string>, BadRequest<string>>> (IGenericRepository<Course> _repo, int id, CourseDto dto, CancellationToken ct) =>
+        group.MapPut("/{id}", [Authorize(Roles = "Admin")] async Task<Results<NoContent, NotFound<string>, BadRequest<string>>> (IGenericRepository<Course> _repo, int id, CourseDto dto, CancellationToken ct) =>
         {
             if (id != dto.Id) return TypedResults.BadRequest("Route ID and course ID do not match.");
 
@@ -115,7 +116,7 @@ public static class CourseEndpoints
             return op.SetIdDescription("Course identifier (must match body.id).");
         });
 
-        group.MapDelete("/{id}", async Task<Results<NoContent, NotFound>> (int id, IGenericRepository<Course> _repo, CancellationToken ct)
+        group.MapDelete("/{id}", [Authorize(Roles = "Admin")] async Task<Results<NoContent, NotFound>> (int id, IGenericRepository<Course> _repo, CancellationToken ct)
             => await _repo.DeleteByIdAsync(id, ct) == 1 ? TypedResults.NoContent() : TypedResults.NotFound())
         .WithName("DeleteCourse")
         .Produces(StatusCodes.Status204NoContent)

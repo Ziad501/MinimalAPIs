@@ -1,5 +1,6 @@
 ﻿using Domain.DTOs.EnrollmentDTOs;
 using Domain.Entities;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi.Any;
 using MinimalAPIs.IRepository;
@@ -57,7 +58,7 @@ public static class EnrollmentEndpoints
             });
         });
 
-        group.MapPost("/", async (EnrollmentCreateDto enrollmentDto, IGenericRepository<Enrollment> _repo, CancellationToken ct) =>
+        group.MapPost("/", [Authorize(Roles = "Admin")] async (EnrollmentCreateDto enrollmentDto, IGenericRepository<Enrollment> _repo, CancellationToken ct) =>
         {
             var enrollment = new Enrollment
             {
@@ -86,7 +87,7 @@ public static class EnrollmentEndpoints
             });
         });
 
-        group.MapPut("/{id}", async (int id, EnrollmentDto enrollment, IGenericRepository<Enrollment> _repo, CancellationToken token) =>
+        group.MapPut("/{id}", [Authorize(Roles = "Admin")] async (int id, EnrollmentDto enrollment, IGenericRepository<Enrollment> _repo, CancellationToken token) =>
         {
             var affected = await _repo.UpdateAsync(p => p.Id == id,
                 setters => setters
@@ -108,7 +109,7 @@ public static class EnrollmentEndpoints
             return op.SetIdDescription("Enrollment identifier (integer > 0).");
         });
 
-        group.MapDelete("/{id}", async (int id, IGenericRepository<Enrollment> _repo, CancellationToken ct) =>
+        group.MapDelete("/{id}", [Authorize(Roles = "Admin")] async (int id, IGenericRepository<Enrollment> _repo, CancellationToken ct) =>
         {
             var affected = await _repo.DeleteByIdAsync(id, ct);
             return affected == 1 ? Results.NoContent() : Results.NotFound();
