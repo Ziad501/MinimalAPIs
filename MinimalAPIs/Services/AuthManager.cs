@@ -14,7 +14,7 @@ public class AuthManager(
     SignInManager<User> signInManager,
     IConfiguration _config) : IAuthManager
 {
-    public async Task<Results<Ok<AuthenResDto>, UnauthorizedHttpResult>> Login(LoginDto dto)
+    public async Task<Results<Ok<AuthenResDto>, BadRequest<List<ErrorResponseDto>>, UnauthorizedHttpResult>> Login(LoginDto dto)
     {
         var user = await userManager.FindByEmailAsync(dto.Email);
         if (user is null) return TypedResults.Unauthorized();

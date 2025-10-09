@@ -1,4 +1,5 @@
 ﻿using Domain.DTOs.AuthenticationDtos;
+using FluentValidation;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.OpenApi.Any;
 using Microsoft.OpenApi.Models;
@@ -13,10 +14,21 @@ public static class AuthenticationEndpoints
         var group = routes.MapGroup("/api/authentication").WithTags("Authentication");
 
         group.MapPost("/login",
-           async Task<Results<Ok<AuthenResDto>, UnauthorizedHttpResult>> (
+           async Task<Results<Ok<AuthenResDto>, BadRequest<List<ErrorResponseDto>>, UnauthorizedHttpResult>> (
+               IValidator<LoginDto> validator,
                LoginDto dto,
-               IAuthManager auth) =>
+               IAuthManager auth, CancellationToken ct) =>
            {
+               var validationResult = await validator.ValidateAsync(dto, ct);
+               if (!validationResult.IsValid)
+               {
+                   var errors = validationResult.Errors
+                   .Select(e => new ErrorResponseDto(
+                       string.IsNullOrEmpty(e.ErrorCode) ? e.PropertyName : e.ErrorCode,
+                       e.ErrorMessage)).ToList();
+
+                   return TypedResults.BadRequest(errors);
+               }
                return await auth.Login(dto);
            })
         .WithName("Login")
@@ -59,9 +71,22 @@ public static class AuthenticationEndpoints
 
         group.MapPost("/register",
            async Task<Results<Created, BadRequest<List<ErrorResponseDto>>>> (
+               IValidator<RegisterDto> validator,
                RegisterDto dto,
-               IAuthManager auth) =>
+               IAuthManager auth,
+               CancellationToken ct) =>
            {
+
+               var validationResult = await validator.ValidateAsync(dto, ct);
+               if (!validationResult.IsValid)
+               {
+                   var errors = validationResult.Errors
+                   .Select(e => new ErrorResponseDto(
+                       string.IsNullOrEmpty(e.ErrorCode) ? e.PropertyName : e.ErrorCode,
+                       e.ErrorMessage)).ToList();
+
+                   return TypedResults.BadRequest(errors);
+               }
                return await auth.Register(dto);
            })
         .WithName("Register")

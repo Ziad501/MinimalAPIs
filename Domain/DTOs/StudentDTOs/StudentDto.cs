@@ -6,5 +6,5 @@ public record StudentDto(
     string LastName,
     DateTime DateOfBirth,
     string IdNumber,
-    string Picture
+    string? Picture
     );
