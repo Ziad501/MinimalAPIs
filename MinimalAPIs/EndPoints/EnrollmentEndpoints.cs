@@ -1,127 +1,118 @@
 ﻿using Domain.DTOs.EnrollmentDTOs;
 using Domain.Entities;
+using Domain.Utility;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.OpenApi.Any;
 using MinimalAPIs.IRepository;
+using MinimalAPIs.OpenApiSpecs;
+
 namespace MinimalAPIs.EndPoints;
 
 public static class EnrollmentEndpoints
 {
     public static void MapEnrollmentEndpoints(this IEndpointRouteBuilder routes)
     {
-        var group = routes.MapGroup("/api/Enrollment").WithTags(nameof(Enrollment));
+        var group = routes.MapGroup("/api/Enrollment")
+                          .WithTags(nameof(Enrollment))
+                          .WithGroupName("enrollments");
 
-        group.MapGet("/", async (IGenericRepository<Enrollment> _repo, CancellationToken ct) =>
+        group.MapGet("/", async Task<Ok<PagedResult<EnrollmentDto>>> (
+            IGenericRepository<Enrollment> _repo,
+            int pageNumber = PagingDefaults.DefaultPageNumber,
+            int pageSize = PagingDefaults.DefaultPageSize,
+            CancellationToken ct = default) =>
         {
-            return await _repo.Query().Select(p => new EnrollmentDto(p.Id, p.CourseId, p.StudentId)).ToListAsync(ct);
+            var query = _repo.Query()
+                .OrderBy(e => e.Id)
+                .Select(e => new EnrollmentDto(e.Id, e.CourseId, e.StudentId));
+
+            var result = await query.ToPagedResultAsync(pageNumber, pageSize, ct);
+            return TypedResults.Ok(result);
         })
-          .WithName("GetAllEnrollments")
-        .Produces<List<EnrollmentDto>>(StatusCodes.Status200OK)
-        .WithOpenApi(op =>
-        {
-            op.Summary = "List all enrollments";
-            op.Description = "Returns enrollment records as DTOs (Id, CourseId, StudentId).";
-            return op.SetJsonExample("200", new OpenApiArray
-            {
-                new OpenApiObject
-                {
-                    ["id"] = new OpenApiInteger(9001),
-                    ["courseId"] = new OpenApiInteger(101),
-                    ["studentId"] = new OpenApiInteger(501)
-                }
-            });
-        });
+        .WithName("GetAllEnrollments")
+        .Produces<PagedResult<EnrollmentDto>>(StatusCodes.Status200OK)
+        .WithOpenApi(EnrollmentsSpecs.List);
 
-        group.MapGet("/{id}", async (int id, IGenericRepository<Enrollment> _repo, CancellationToken token) =>
+        group.MapGet("/{id}", async Task<Results<Ok<EnrollmentDto>, NotFound>> (
+            int id,
+            IGenericRepository<Enrollment> _repo,
+            CancellationToken ct) =>
         {
             var dto = await _repo.Query()
-                .Where(p => p.Id == id)
-                .Select(p => new EnrollmentDto(p.Id, p.CourseId, p.StudentId))
-                .FirstOrDefaultAsync(token);
+                .Where(e => e.Id == id)
+                .Select(e => new EnrollmentDto(e.Id, e.CourseId, e.StudentId))
+                .FirstOrDefaultAsync(ct);
 
-            return dto is null ? Results.NotFound() : Results.Ok(dto);
+            return dto is null ? TypedResults.NotFound() : TypedResults.Ok(dto);
         })
         .WithName("GetEnrollmentById")
         .Produces<EnrollmentDto>(StatusCodes.Status200OK)
         .Produces(StatusCodes.Status404NotFound)
-        .WithOpenApi(op =>
-        {
-            op.Summary = "Get an enrollment by ID";
-            op.Description = "Fetches a single enrollment record by ID.";
-            op.SetIdDescription("Enrollment identifier (integer > 0).");
-            return op.SetJsonExample("200", new OpenApiObject
-            {
-                ["id"] = new OpenApiInteger(9001),
-                ["courseId"] = new OpenApiInteger(101),
-                ["studentId"] = new OpenApiInteger(501)
-            });
-        });
+        .WithOpenApi(EnrollmentsSpecs.GetById);
 
-        group.MapPost("/", [Authorize(Roles = "Admin")] async (EnrollmentCreateDto enrollmentDto, IGenericRepository<Enrollment> _repo, CancellationToken ct) =>
+        group.MapPost("/", [Authorize(Roles = "Admin")] async Task<Created<EnrollmentDto>> (
+            EnrollmentCreateDto dto,
+            IGenericRepository<Enrollment> _repo,
+            CancellationToken ct) =>
         {
-            var enrollment = new Enrollment
+            var model = new Enrollment
             {
-                CourseId = enrollmentDto.CourseId,
-                StudentId = enrollmentDto.StudentId,
+                CourseId = dto.CourseId,
+                StudentId = dto.StudentId,
                 CreatedAt = DateTime.UtcNow,
                 CreatedBy = "sys",
                 UpdatedAt = DateTime.UtcNow,
                 UpdatedBy = "sys"
             };
-            await _repo.AddAsync(enrollment, ct);
-            return Results.Created($"/api/Enrollment/{enrollment.Id}", enrollmentDto);
+
+            await _repo.AddAsync(model, ct);
+
+            var resultDto = new EnrollmentDto(model.Id, model.CourseId, model.StudentId);
+            return TypedResults.Created($"/api/Enrollment/{model.Id}", resultDto);
         })
         .WithName("CreateEnrollment")
         .Accepts<EnrollmentCreateDto>("application/json")
-        .Produces<EnrollmentCreateDto>(StatusCodes.Status201Created)
-        .WithOpenApi(op =>
-        {
-            op.Summary = "Create an enrollment";
-            op.Description = "Creates the relation between a student and a course. Response echoes the input payload and sets `Location` header.";
-            op.EnsureResponseHeader("201", "Location", "URL of created enrollment", "/api/Enrollment/9001");
-            return op.SetJsonExample("201", new OpenApiObject
-            {
-                ["courseId"] = new OpenApiInteger(101),
-                ["studentId"] = new OpenApiInteger(501)
-            });
-        });
+        .Produces<EnrollmentDto>(StatusCodes.Status201Created)
+        .WithOpenApi(EnrollmentsSpecs.Create);
 
-        group.MapPut("/{id}", [Authorize(Roles = "Admin")] async (int id, EnrollmentDto enrollment, IGenericRepository<Enrollment> _repo, CancellationToken token) =>
+        group.MapPut("/{id}", [Authorize(Roles = "Admin")] async Task<Results<NoContent, NotFound, BadRequest<string>>> (
+            int id,
+            EnrollmentDto dto,
+            IGenericRepository<Enrollment> _repo,
+            CancellationToken ct) =>
         {
-            var affected = await _repo.UpdateAsync(p => p.Id == id,
+            if (id != dto.Id)
+                return TypedResults.BadRequest("Route ID and body ID do not match.");
+
+            var affected = await _repo.UpdateAsync(e => e.Id == id,
                 setters => setters
-                    .SetProperty(m => m.CourseId, enrollment.CourseId)
-                    .SetProperty(m => m.StudentId, enrollment.StudentId)
-                    .SetProperty(m => m.UpdatedAt, DateTime.UtcNow)
-                    .SetProperty(m => m.UpdatedBy, "Sys"), token);
+                    .SetProperty(e => e.CourseId, dto.CourseId)
+                    .SetProperty(e => e.StudentId, dto.StudentId)
+                    .SetProperty(e => e.UpdatedAt, DateTime.UtcNow)
+                    .SetProperty(e => e.UpdatedBy, "sys"),
+                ct);
 
-            return affected == 1 ? Results.NoContent() : Results.NotFound();
+            return affected == 1 ? TypedResults.NoContent() : TypedResults.NotFound();
         })
         .WithName("UpdateEnrollment")
         .Accepts<EnrollmentDto>("application/json")
         .Produces(StatusCodes.Status204NoContent)
         .Produces(StatusCodes.Status404NotFound)
-        .WithOpenApi(op =>
-        {
-            op.Summary = "Update an enrollment";
-            op.Description = "Full update by ID using set-based SQL. Returns 204 on success.";
-            return op.SetIdDescription("Enrollment identifier (integer > 0).");
-        });
+        .Produces<string>(StatusCodes.Status400BadRequest, "text/plain")
+        .WithOpenApi(EnrollmentsSpecs.Update);
 
-        group.MapDelete("/{id}", [Authorize(Roles = "Admin")] async (int id, IGenericRepository<Enrollment> _repo, CancellationToken ct) =>
+        group.MapDelete("/{id}", [Authorize(Roles = "Admin")] async Task<Results<NoContent, NotFound>> (
+            int id,
+            IGenericRepository<Enrollment> _repo,
+            CancellationToken ct) =>
         {
             var affected = await _repo.DeleteByIdAsync(id, ct);
-            return affected == 1 ? Results.NoContent() : Results.NotFound();
+            return affected == 1 ? TypedResults.NoContent() : TypedResults.NotFound();
         })
         .WithName("DeleteEnrollment")
         .Produces(StatusCodes.Status204NoContent)
         .Produces(StatusCodes.Status404NotFound)
-        .WithOpenApi(op =>
-        {
-            op.Summary = "Delete an enrollment";
-            op.Description = "Permanently removes an enrollment by ID.";
-            return op.SetIdDescription("Enrollment identifier (integer > 0).");
-        });
+        .WithOpenApi(EnrollmentsSpecs.Delete);
     }
 }

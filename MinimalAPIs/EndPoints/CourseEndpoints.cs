@@ -1,41 +1,34 @@
 ﻿using Domain.DTOs.CourseDTOs;
 using Domain.Entities;
+using Domain.Utility;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.OpenApi.Any;
 using MinimalAPIs.IRepository;
+using MinimalAPIs.OpenApiSpecs;
 
 namespace MinimalAPIs.EndPoints;
+
 public static class CourseEndpoints
 {
     public static void MapCourseEndpoints(this IEndpointRouteBuilder routes)
     {
-        var group = routes.MapGroup("/api/courses").WithTags(nameof(Course));
+        var group = routes.MapGroup("/api/courses")
+                          .WithTags(nameof(Course))
+                          .WithGroupName("courses");
 
-        group.MapGet("/", async Task<Ok<List<CourseDto>>> (IGenericRepository<Course> _repo, CancellationToken ct) =>
+        // Paged list
+        group.MapGet("/", async Task<Ok<PagedResult<CourseDto>>> (IGenericRepository<Course> _repo, int pageNumber = PagingDefaults.DefaultPageNumber, int pageSize = PagingDefaults.DefaultPageSize, CancellationToken ct = default) =>
         {
-            var courses = await _repo.Query()
-                .Select(c => new CourseDto(c.Id, c.Title, c.Credits))
-                .ToListAsync(ct);
-            return TypedResults.Ok(courses);
+            var query = _repo.Query()
+                .OrderBy(c => c.Id)
+                .Select(c => new CourseDto(c.Id, c.Title, c.Credits));
+            var result = await query.ToPagedResultAsync(pageNumber, pageSize, ct);
+            return TypedResults.Ok(result);
         })
         .WithName("GetAllCourses")
-        .Produces<List<CourseDto>>(StatusCodes.Status200OK)
-        .WithOpenApi(op =>
-        {
-            op.Summary = "List all courses";
-            op.Description = "Returns all courses as lightweight DTOs using server-side projection.";
-            return op.SetJsonExample("200", new OpenApiArray
-            {
-                new OpenApiObject
-                {
-                    ["id"] = new OpenApiInteger(101),
-                    ["title"] = new OpenApiString("Intro to Databases"),
-                    ["credits"] = new OpenApiInteger(3)
-                }
-            });
-        });
+        .Produces<PagedResult<CourseDto>>(StatusCodes.Status200OK)
+        .WithOpenApi(CoursesSpecs.List);
 
         group.MapGet("/{id}", async Task<Results<Ok<CourseDto>, NotFound<string>>> (IGenericRepository<Course> _repo, int id, CancellationToken ct) =>
         {
@@ -48,18 +41,7 @@ public static class CourseEndpoints
         .WithName("GetCourseByID")
         .Produces<CourseDto>(StatusCodes.Status200OK)
         .Produces<string>(StatusCodes.Status404NotFound, "text/plain")
-        .WithOpenApi(op =>
-        {
-            op.Summary = "Get a course by ID";
-            op.Description = "Fetches a single course. Returns 404 (text/plain) if the course does not exist.";
-            op.SetIdDescription("Course identifier (integer > 0).");
-            return op.SetJsonExample("200", new OpenApiObject
-            {
-                ["id"] = new OpenApiInteger(101),
-                ["title"] = new OpenApiString("Intro to Databases"),
-                ["credits"] = new OpenApiInteger(3)
-            });
-        });
+        .WithOpenApi(CoursesSpecs.GetById);
 
         group.MapPost("/", [Authorize(Roles = "Admin")] async Task<Results<Created<CourseDto>, BadRequest>> (IGenericRepository<Course> _repo, CourseCreateDto dto, CancellationToken ct) =>
         {
@@ -80,18 +62,7 @@ public static class CourseEndpoints
         .Accepts<CourseCreateDto>("application/json")
         .Produces<CourseDto>(StatusCodes.Status201Created)
         .Produces(StatusCodes.Status400BadRequest)
-        .WithOpenApi(op =>
-        {
-            op.Summary = "Create a course";
-            op.Description = "Creates a course and returns the created resource as CourseDto. **Note:** Location header uses `/courses/{id}` (without `/api`).";
-            op.EnsureResponseHeader("201", "Location", "Relative URL of created resource", "/courses/123");
-            return op.SetJsonExample("201", new OpenApiObject
-            {
-                ["id"] = new OpenApiInteger(123),
-                ["title"] = new OpenApiString("Discrete Math"),
-                ["credits"] = new OpenApiInteger(3)
-            });
-        });
+        .WithOpenApi(CoursesSpecs.Create);
 
         group.MapPut("/{id}", [Authorize(Roles = "Admin")] async Task<Results<NoContent, NotFound<string>, BadRequest<string>>> (IGenericRepository<Course> _repo, int id, CourseDto dto, CancellationToken ct) =>
         {
@@ -109,23 +80,13 @@ public static class CourseEndpoints
         .Produces(StatusCodes.Status204NoContent)
         .Produces<string>(StatusCodes.Status400BadRequest, "text/plain")
         .Produces<string>(StatusCodes.Status404NotFound, "text/plain")
-        .WithOpenApi(op =>
-        {
-            op.Summary = "Update a course";
-            op.Description = "Full update by ID using set-based SQL (`ExecuteUpdateAsync`). Returns 204 on success.";
-            return op.SetIdDescription("Course identifier (must match body.id).");
-        });
+        .WithOpenApi(CoursesSpecs.Update);
 
         group.MapDelete("/{id}", [Authorize(Roles = "Admin")] async Task<Results<NoContent, NotFound>> (int id, IGenericRepository<Course> _repo, CancellationToken ct)
             => await _repo.DeleteByIdAsync(id, ct) == 1 ? TypedResults.NoContent() : TypedResults.NotFound())
         .WithName("DeleteCourse")
         .Produces(StatusCodes.Status204NoContent)
         .Produces(StatusCodes.Status404NotFound)
-        .WithOpenApi(op =>
-        {
-            op.Summary = "Delete a course";
-            op.Description = "Permanently removes a course by ID using set-based delete.";
-            return op.SetIdDescription("Course identifier (integer > 0).");
-        });
+        .WithOpenApi(CoursesSpecs.Delete);
     }
 }

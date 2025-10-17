@@ -1,44 +1,38 @@
 ﻿using Domain.DTOs.StudentDTOs;
 using Domain.Entities;
+using Domain.Utility;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.OpenApi.Any;
 using MinimalAPIs.IRepository;
+using MinimalAPIs.OpenApiSpecs;
+
 namespace MinimalAPIs.EndPoints;
 
 public static class StudentEndpoints
 {
     public static void MapStudentEndpoints(this IEndpointRouteBuilder routes)
     {
-        var group = routes.MapGroup("/api/Student").WithTags(nameof(Student));
+        var group = routes.MapGroup("/api/Student")
+                          .WithTags(nameof(Student))
+                          .WithGroupName("students");
 
-        group.MapGet("/", async Task<Ok<List<StudentDto>>> (IGenericRepository<Student> _repo) =>
+        // Paged list
+        group.MapGet("/", async Task<Ok<PagedResult<StudentDto>>> (
+            IGenericRepository<Student> _repo,
+            int pageNumber = PagingDefaults.DefaultPageNumber,
+            int pageSize = PagingDefaults.DefaultPageSize,
+            CancellationToken ct = default) =>
         {
-            return TypedResults.Ok(
-                await _repo.Query()
-                .Select(p => new StudentDto(p.Id, p.FirstName, p.LastName, p.DateOfBirth, p.IdNumber, p.Picture))
-                .ToListAsync());
+            var query = _repo.Query()
+                .OrderBy(s => s.Id)
+                .Select(p => new StudentDto(p.Id, p.FirstName, p.LastName, p.DateOfBirth, p.IdNumber, p.Picture));
+            var result = await query.ToPagedResultAsync(pageNumber, pageSize, ct);
+            return TypedResults.Ok(result);
         })
         .WithName("GetAllStudents")
-        .Produces<List<StudentDto>>(StatusCodes.Status200OK)
-        .WithOpenApi(op =>
-        {
-            op.Summary = "List all students";
-            op.Description = "Returns students as DTOs via server-side projection. No tracking is used.";
-            return op.SetJsonExample("200", new OpenApiArray
-            {
-                new OpenApiObject
-                {
-                    ["id"] = new OpenApiInteger(501),
-                    ["firstName"] = new OpenApiString("Sara"),
-                    ["lastName"] = new OpenApiString("Ali"),
-                    ["dateOfBirth"] = new OpenApiString("2001-05-17"),
-                    ["idNumber"] = new OpenApiString("A123456789"),
-                    ["picture"] = new OpenApiString("https://example.com/sara.jpg")
-                }
-            });
-        });
+        .Produces<PagedResult<StudentDto>>(StatusCodes.Status200OK)
+        .WithOpenApi(StudentsSpecs.List);
 
         group.MapGet("/{id}", async Task<Results<Ok<StudentDto>, NotFound>> (int id, IGenericRepository<Student> _repo, CancellationToken ct) =>
         {
@@ -52,21 +46,7 @@ public static class StudentEndpoints
         .WithName("GetStudentById")
         .Produces<StudentDto>(StatusCodes.Status200OK)
         .Produces(StatusCodes.Status404NotFound)
-        .WithOpenApi(op =>
-        {
-            op.Summary = "Get a student by ID";
-            op.Description = "Fetch a single student. Returns 404 if not found.";
-            op.SetIdDescription("Student identifier (integer > 0).");
-            return op.SetJsonExample("200", new OpenApiObject
-            {
-                ["id"] = new OpenApiInteger(501),
-                ["firstName"] = new OpenApiString("Sara"),
-                ["lastName"] = new OpenApiString("Ali"),
-                ["dateOfBirth"] = new OpenApiString("2001-05-17"),
-                ["idNumber"] = new OpenApiString("A123456789"),
-                ["picture"] = new OpenApiString("https://example.com/sara.jpg")
-            });
-        });
+        .WithOpenApi(StudentsSpecs.GetById);
 
         group.MapPost("/", [Authorize(Roles = "Admin")] async (StudentCreateDto studentDto, IGenericRepository<Student> _repo, CancellationToken ct) =>
         {
@@ -88,20 +68,7 @@ public static class StudentEndpoints
         .WithName("CreateStudent")
         .Accepts<StudentCreateDto>("application/json")
         .Produces<StudentCreateDto>(StatusCodes.Status201Created)
-        .WithOpenApi(op =>
-        {
-            op.Summary = "Create a new student";
-            op.Description = "Creates a student and returns the submitted payload. Note this response does **not** include the generated id.";
-            op.EnsureResponseHeader("201", "Location", "URL of created student", "/api/Student/501");
-            return op.SetJsonExample("201", new OpenApiObject
-            {
-                ["firstName"] = new OpenApiString("Sara"),
-                ["lastName"] = new OpenApiString("Ali"),
-                ["dateOfBirth"] = new OpenApiString("2001-05-17"),
-                ["idNumber"] = new OpenApiString("A123456789"),
-                ["picture"] = new OpenApiNull()
-            });
-        });
+        .WithOpenApi(StudentsSpecs.Create);
 
         group.MapPut("/{id}", [Authorize(Roles = "Admin")] async Task<Results<NoContent, NotFound, BadRequest<string>>> (int id, StudentDto student, IGenericRepository<Student> _repo, CancellationToken token) =>
         {
@@ -123,14 +90,8 @@ public static class StudentEndpoints
         .WithName("UpdateStudent")
         .Accepts<StudentDto>("application/json")
         .Produces(StatusCodes.Status204NoContent)
-        .Produces<string>(StatusCodes.Status400BadRequest, "text/plain")
         .Produces(StatusCodes.Status404NotFound)
-        .WithOpenApi(op =>
-        {
-            op.Summary = "Update a student";
-            op.Description = "Full update by ID using set-based SQL. Returns 204 on success.";
-            return op.SetIdDescription("Student identifier (must match body.id).");
-        });
+        .WithOpenApi(StudentsSpecs.Update);
 
         group.MapDelete("/{id}", [Authorize(Roles = "Admin")] async Task<Results<NoContent, NotFound>> (int id, IGenericRepository<Student> _repo, CancellationToken ct) =>
         {
@@ -140,11 +101,6 @@ public static class StudentEndpoints
         .WithName("DeleteStudent")
         .Produces(StatusCodes.Status204NoContent)
         .Produces(StatusCodes.Status404NotFound)
-        .WithOpenApi(op =>
-        {
-            op.Summary = "Delete a student";
-            op.Description = "Permanently removes a student record by ID.";
-            return op.SetIdDescription("Student identifier (integer > 0).");
-        });
+        .WithOpenApi(StudentsSpecs.Delete);
     }
 }
