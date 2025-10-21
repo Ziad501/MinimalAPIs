@@ -1,4 +1,5 @@
 ﻿using Domain.DTOs.AuthenticationDtos;
+using Domain.Validation;
 using FluentValidation;
 using Microsoft.AspNetCore.Http.HttpResults;
 using MinimalAPIs.OpenApiSpecs;
@@ -20,16 +21,9 @@ public static class AuthenticationEndpoints
                LoginDto dto,
                IAuthManager auth, CancellationToken ct) =>
            {
-               var validationResult = await validator.ValidateAsync(dto, ct);
-               if (!validationResult.IsValid)
-               {
-                   var errors = validationResult.Errors
-                   .Select(e => new ErrorResponseDto(
-                       string.IsNullOrEmpty(e.ErrorCode) ? e.PropertyName : e.ErrorCode,
-                       e.ErrorMessage)).ToList();
+               var validationResult = await validator.ToErrorsAsync(dto, ct);
+               if (validationResult is not null) return TypedResults.BadRequest(validationResult);
 
-                   return TypedResults.BadRequest(errors);
-               }
                return await auth.Login(dto);
            })
         .WithName("Login")
@@ -45,16 +39,8 @@ public static class AuthenticationEndpoints
                IAuthManager auth,
                CancellationToken ct) =>
            {
-               var validationResult = await validator.ValidateAsync(dto, ct);
-               if (!validationResult.IsValid)
-               {
-                   var errors = validationResult.Errors
-                   .Select(e => new ErrorResponseDto(
-                       string.IsNullOrEmpty(e.ErrorCode) ? e.PropertyName : e.ErrorCode,
-                       e.ErrorMessage)).ToList();
-
-                   return TypedResults.BadRequest(errors);
-               }
+               var validationResult = await validator.ToErrorsAsync(dto, ct);
+               if (validationResult is not null) return TypedResults.BadRequest(validationResult);
                return await auth.Register(dto);
            })
         .WithName("Register")

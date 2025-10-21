@@ -1,11 +1,15 @@
-﻿using Domain.DTOs.CourseDTOs;
+﻿using Domain.DTOs.AuthenticationDtos;
+using Domain.DTOs.CourseDTOs;
 using Domain.Entities;
 using Domain.Utility;
+using Domain.Validation;
+using FluentValidation;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
 using MinimalAPIs.IRepository;
 using MinimalAPIs.OpenApiSpecs;
+using System.Security.Claims;
 
 namespace MinimalAPIs.EndPoints;
 
@@ -17,7 +21,6 @@ public static class CourseEndpoints
                           .WithTags(nameof(Course))
                           .WithGroupName("courses");
 
-        // Paged list
         group.MapGet("/", async Task<Ok<PagedResult<CourseDto>>> (IGenericRepository<Course> _repo, int pageNumber = PagingDefaults.DefaultPageNumber, int pageSize = PagingDefaults.DefaultPageSize, CancellationToken ct = default) =>
         {
             var query = _repo.Query()
@@ -43,16 +46,21 @@ public static class CourseEndpoints
         .Produces<string>(StatusCodes.Status404NotFound, "text/plain")
         .WithOpenApi(CoursesSpecs.GetById);
 
-        group.MapPost("/", [Authorize(Roles = "Admin")] async Task<Results<Created<CourseDto>, BadRequest>> (IGenericRepository<Course> _repo, CourseCreateDto dto, CancellationToken ct) =>
+        group.MapPost("/", [Authorize(Roles = "Admin")] async Task<Results<Created<CourseDto>, BadRequest<List<ErrorResponseDto>>>> (IValidator<CourseCreateDto> validator, IGenericRepository<Course> _repo, CourseCreateDto dto, ClaimsPrincipal user, CancellationToken ct) =>
         {
+            var validationResult = await validator.ToErrorsAsync(dto, ct);
+            if (validationResult is not null) return TypedResults.BadRequest(validationResult);
+            var actor = user.Identity?.Name
+                ?? user.FindFirst("userId")?.Value
+                ?? "system";
             var course = new Course
             {
                 Title = dto.Title,
                 Credits = dto.Credits,
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow,
-                CreatedBy = "sys",
-                UpdatedBy = "sys"
+                CreatedBy = actor,
+                UpdatedBy = actor
             };
             await _repo.AddAsync(course, ct);
             var courseDto = new CourseDto(course.Id, course.Title, course.Credits);
@@ -62,31 +70,38 @@ public static class CourseEndpoints
         .Accepts<CourseCreateDto>("application/json")
         .Produces<CourseDto>(StatusCodes.Status201Created)
         .Produces(StatusCodes.Status400BadRequest)
-        .WithOpenApi(CoursesSpecs.Create);
+        .WithOpenApi(CoursesSpecs.Create)
+        .RequireAuthorization(new AuthorizeAttribute { Roles = "Admin" });
 
-        group.MapPut("/{id}", [Authorize(Roles = "Admin")] async Task<Results<NoContent, NotFound<string>, BadRequest<string>>> (IGenericRepository<Course> _repo, int id, CourseDto dto, CancellationToken ct) =>
+        group.MapPut("/{id}", async Task<Results<NoContent, NotFound<string>, BadRequest<string>, BadRequest<List<ErrorResponseDto>>>> (IValidator<CourseDto> validator, IGenericRepository<Course> _repo, int id, CourseDto dto, ClaimsPrincipal user, CancellationToken ct) =>
         {
+            var validationResult = await validator.ToErrorsAsync(dto, ct);
+            if (validationResult is not null) return TypedResults.BadRequest(validationResult);
             if (id != dto.Id) return TypedResults.BadRequest("Route ID and course ID do not match.");
-
+            var actor = user.Identity?.Name
+                ?? user.FindFirst("userId")?.Value
+                ?? "system";
             return await _repo.UpdateAsync(p => p.Id == id,
                 set => set
                     .SetProperty(x => x.Title, dto.Title)
                     .SetProperty(x => x.Credits, dto.Credits)
                     .SetProperty(x => x.UpdatedAt, DateTime.UtcNow)
-                    .SetProperty(x => x.UpdatedBy, "sys"), ct) == 1 ? TypedResults.NoContent() : TypedResults.NotFound($"course with Id: {id} is misssing");
+                    .SetProperty(x => x.UpdatedBy, actor), ct) == 1 ? TypedResults.NoContent() : TypedResults.NotFound($"course with Id: {id} is misssing");
         })
         .WithName("UpdateCourse")
         .Accepts<CourseDto>("application/json")
         .Produces(StatusCodes.Status204NoContent)
         .Produces<string>(StatusCodes.Status400BadRequest, "text/plain")
         .Produces<string>(StatusCodes.Status404NotFound, "text/plain")
-        .WithOpenApi(CoursesSpecs.Update);
+        .WithOpenApi(CoursesSpecs.Update)
+        .RequireAuthorization(new AuthorizeAttribute { Roles = "Admin" });
 
-        group.MapDelete("/{id}", [Authorize(Roles = "Admin")] async Task<Results<NoContent, NotFound>> (int id, IGenericRepository<Course> _repo, CancellationToken ct)
+        group.MapDelete("/{id}", async Task<Results<NoContent, NotFound>> (int id, IGenericRepository<Course> _repo, CancellationToken ct)
             => await _repo.DeleteByIdAsync(id, ct) == 1 ? TypedResults.NoContent() : TypedResults.NotFound())
         .WithName("DeleteCourse")
         .Produces(StatusCodes.Status204NoContent)
         .Produces(StatusCodes.Status404NotFound)
-        .WithOpenApi(CoursesSpecs.Delete);
+        .WithOpenApi(CoursesSpecs.Delete)
+        .RequireAuthorization(new AuthorizeAttribute { Roles = "Admin" });
     }
 }

@@ -1,11 +1,15 @@
-﻿using Domain.DTOs.EnrollmentDTOs;
+﻿using Domain.DTOs.AuthenticationDtos;
+using Domain.DTOs.EnrollmentDTOs;
 using Domain.Entities;
 using Domain.Utility;
+using Domain.Validation;
+using FluentValidation;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
 using MinimalAPIs.IRepository;
 using MinimalAPIs.OpenApiSpecs;
+using System.Security.Claims;
 
 namespace MinimalAPIs.EndPoints;
 
@@ -13,7 +17,7 @@ public static class EnrollmentEndpoints
 {
     public static void MapEnrollmentEndpoints(this IEndpointRouteBuilder routes)
     {
-        var group = routes.MapGroup("/api/Enrollment")
+        var group = routes.MapGroup("/api/enrollments")
                           .WithTags(nameof(Enrollment))
                           .WithGroupName("enrollments");
 
@@ -51,46 +55,60 @@ public static class EnrollmentEndpoints
         .Produces(StatusCodes.Status404NotFound)
         .WithOpenApi(EnrollmentsSpecs.GetById);
 
-        group.MapPost("/", [Authorize(Roles = "Admin")] async Task<Created<EnrollmentDto>> (
+        group.MapPost("/", async Task<Results<Created<EnrollmentDto>, BadRequest<List<ErrorResponseDto>>>> (
+            IValidator<EnrollmentCreateDto> validator,
             EnrollmentCreateDto dto,
             IGenericRepository<Enrollment> _repo,
+            ClaimsPrincipal user,
             CancellationToken ct) =>
         {
+            var validationResult = await validator.ToErrorsAsync(dto, ct);
+            if (validationResult is not null) return TypedResults.BadRequest(validationResult);
+            var actor = user.Identity?.Name
+                       ?? user.FindFirst("userId")?.Value
+                       ?? "system";
             var model = new Enrollment
             {
                 CourseId = dto.CourseId,
                 StudentId = dto.StudentId,
                 CreatedAt = DateTime.UtcNow,
-                CreatedBy = "sys",
+                CreatedBy = actor,
                 UpdatedAt = DateTime.UtcNow,
-                UpdatedBy = "sys"
+                UpdatedBy = actor
             };
 
             await _repo.AddAsync(model, ct);
 
             var resultDto = new EnrollmentDto(model.Id, model.CourseId, model.StudentId);
-            return TypedResults.Created($"/api/Enrollment/{model.Id}", resultDto);
+            return TypedResults.Created($"/api/enrollments/{model.Id}", resultDto);
         })
         .WithName("CreateEnrollment")
         .Accepts<EnrollmentCreateDto>("application/json")
         .Produces<EnrollmentDto>(StatusCodes.Status201Created)
-        .WithOpenApi(EnrollmentsSpecs.Create);
+        .WithOpenApi(EnrollmentsSpecs.Create)
+        .RequireAuthorization(new AuthorizeAttribute { Roles = "Admin" });
 
-        group.MapPut("/{id}", [Authorize(Roles = "Admin")] async Task<Results<NoContent, NotFound, BadRequest<string>>> (
+        group.MapPut("/{id}", async Task<Results<NoContent, NotFound, BadRequest<string>, BadRequest<List<ErrorResponseDto>>>> (
+            IValidator<EnrollmentDto> validator,
             int id,
             EnrollmentDto dto,
             IGenericRepository<Enrollment> _repo,
+            ClaimsPrincipal user,
             CancellationToken ct) =>
         {
+            var validationResult = await validator.ToErrorsAsync(dto, ct);
+            if (validationResult is not null) return TypedResults.BadRequest(validationResult);
             if (id != dto.Id)
                 return TypedResults.BadRequest("Route ID and body ID do not match.");
-
+            var actor = user.Identity?.Name
+                       ?? user.FindFirst("userId")?.Value
+                       ?? "system";
             var affected = await _repo.UpdateAsync(e => e.Id == id,
                 setters => setters
                     .SetProperty(e => e.CourseId, dto.CourseId)
                     .SetProperty(e => e.StudentId, dto.StudentId)
                     .SetProperty(e => e.UpdatedAt, DateTime.UtcNow)
-                    .SetProperty(e => e.UpdatedBy, "sys"),
+                    .SetProperty(e => e.UpdatedBy, actor),
                 ct);
 
             return affected == 1 ? TypedResults.NoContent() : TypedResults.NotFound();
@@ -100,9 +118,10 @@ public static class EnrollmentEndpoints
         .Produces(StatusCodes.Status204NoContent)
         .Produces(StatusCodes.Status404NotFound)
         .Produces<string>(StatusCodes.Status400BadRequest, "text/plain")
-        .WithOpenApi(EnrollmentsSpecs.Update);
+        .WithOpenApi(EnrollmentsSpecs.Update)
+        .RequireAuthorization(new AuthorizeAttribute { Roles = "Admin" });
 
-        group.MapDelete("/{id}", [Authorize(Roles = "Admin")] async Task<Results<NoContent, NotFound>> (
+        group.MapDelete("/{id}", async Task<Results<NoContent, NotFound>> (
             int id,
             IGenericRepository<Enrollment> _repo,
             CancellationToken ct) =>
@@ -113,6 +132,8 @@ public static class EnrollmentEndpoints
         .WithName("DeleteEnrollment")
         .Produces(StatusCodes.Status204NoContent)
         .Produces(StatusCodes.Status404NotFound)
-        .WithOpenApi(EnrollmentsSpecs.Delete);
+        .WithOpenApi(EnrollmentsSpecs.Delete)
+        .RequireAuthorization(new AuthorizeAttribute { Roles = "Admin" });
+
     }
 }
